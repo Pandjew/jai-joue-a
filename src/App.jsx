@@ -3,6 +3,7 @@ import {
   ChevronRight, RotateCcw, Home, HelpCircle,
   Check, X, Crown, Globe, Star, Flag, Award,
 } from "lucide-react";
+import generated from "./players.json";
 
 /**
  * "J'AI JOUÉ À" — jeu de devinette de footballeurs
@@ -21,7 +22,7 @@ import {
  * ------------------------------------------------------------
  */
 
-const PLAYERS = [
+const CURATED = [
   // ---- Légendes / icônes ----
   { name: "Lionel Messi", alt: ["messi", "leo", "leo messi"], leagues: ["lg", "l1"], legend: true, career: [
     { club: "FC Barcelone", years: "2004–2021", apps: 520, goals: 474 },
@@ -435,6 +436,9 @@ const PLAYERS = [
     { club: "Olympique de Marseille", years: "2017–2023", apps: 230, goals: 60 }]},
 ];
 
+// Base auto-générée (players.json) si non vide, sinon base curée ci-dessus
+const PLAYERS = generated.length ? generated : CURATED;
+
 // ---- Styles d'écussons (couleurs de club) ----
 const CLUB_STYLE = {
   "Real Madrid": { bg: "#FEBE10", fg: "#00296B", short: "RMA" },
@@ -597,15 +601,46 @@ const norm = (s) =>
     .replace(/\s+/g, " ")
     .trim();
 
+// Distance de Levenshtein : nb de modifs (ajout/suppression/remplacement) entre 2 mots
+function lev(a, b) {
+  const m = a.length, n = b.length;
+  if (!m) return n;
+  if (!n) return m;
+  let prev = Array.from({ length: n + 1 }, (_, i) => i);
+  for (let i = 1; i <= m; i++) {
+    const cur = [i];
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+    }
+    prev = cur;
+  }
+  return prev[n];
+}
+
+// Marge d'erreur tolérée selon la longueur du nom cible
+function tolFor(len) {
+  if (len <= 7) return 1;   // noms courts : 1 faute
+  if (len <= 11) return 2;  // moyens : 2 fautes
+  return 3;                 // longs (Schweinsteiger...) : 3 fautes
+}
+
+function close(g, target) {
+  if (!g || !target) return false;
+  if (g === target) return true;
+  if (g.length < 3) return false; // on n'approxime pas sur 1-2 lettres
+  return lev(g, target) <= tolFor(target.length);
+}
+
 function isCorrect(guess, player) {
   const g = norm(guess);
   if (!g) return false;
   const full = norm(player.name);
-  if (g === full) return true;
+  if (close(g, full)) return true;
   const tokens = full.split(" ");
   const last = tokens[tokens.length - 1];
-  if (g === last && last.length >= 4) return true;
-  if (player.alt && player.alt.some((a) => norm(a) === g)) return true;
+  if (last.length >= 4 && close(g, last)) return true;
+  if (player.alt && player.alt.some((a) => close(g, norm(a)))) return true;
   return false;
 }
 
@@ -663,6 +698,7 @@ export default function App() {
   const potential = 3 - hint;
 
   const startGame = () => {
+    if (!poolFor(mode).length) return;
     const first = pick(poolFor(mode), []);
     setPlayer(first);
     setUsed([first.name]);
@@ -797,12 +833,12 @@ export default function App() {
                 <Crest club={c.club} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-bold">{c.club}</div>
-                  {hint >= 1 && <div className="text-xs text-emerald-300/90">{c.years}</div>}
+                  {hint >= 1 && <div className="text-xs text-emerald-300/90">{c.years || "?"}</div>}
                 </div>
                 {hint >= 2 && (
                   <div className="shrink-0 text-right text-[11px] text-emerald-200/55">
-                    <span className="font-semibold text-emerald-100">{c.apps}</span> matchs<br />
-                    <span className="font-semibold text-emerald-100">{c.goals}</span> buts
+                    <span className="font-semibold text-emerald-100">{c.apps ?? "—"}</span> matchs<br />
+                    <span className="font-semibold text-emerald-100">{c.goals ?? "—"}</span> buts
                   </div>
                 )}
               </li>
@@ -897,7 +933,7 @@ export default function App() {
                 <li key={i} className="flex items-center gap-3 px-3 py-2 text-sm">
                   <Crest club={c.club} size={30} />
                   <span className="flex-1 font-semibold">{c.club}</span>
-                  <span className="text-xs text-emerald-200/50">{c.years} · {c.apps}m / {c.goals}b</span>
+                  <span className="text-xs text-emerald-200/50">{c.years || "?"} · {c.apps ?? "—"}m / {c.goals ?? "—"}b</span>
                 </li>
               ))}
             </ul>
