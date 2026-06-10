@@ -796,9 +796,15 @@ export default function App() {
       setStreak(streak + 1);
       setResult({ ok: true, name: player.name, pts });
     } else {
-      saveRun(score, streak);
-      setResult({ ok: false, name: player.name });
-      setScreen("gameover");
+      const remaining = lives - 1;
+      setLives(remaining);
+      if (remaining <= 0) {
+        saveRun(score, streak);
+        setResult({ ok: false, name: player.name, outOfLives: true });
+        setScreen("gameover");
+      } else {
+        setResult({ life: true, wrong: true, name: player.name, remaining });
+      }
     }
   };
 
@@ -963,10 +969,11 @@ export default function App() {
             ) : (
               <>
                 <div className="flex items-center justify-center gap-2 text-amber-300">
-                  <Heart size={18} fill="currentColor" /> <span className="font-black">Vie utilisée</span>
+                  {result.wrong ? <X size={18} /> : <Heart size={18} fill="currentColor" />}
+                  <span className="font-black">{result.wrong ? "Raté !" : "Vie utilisée"}</span>
                 </div>
                 <p className="mt-1 text-sm">
-                  C'était <b>{result.name}</b> — 0 pt · {result.remaining} vie{result.remaining > 1 ? "s" : ""} restante{result.remaining > 1 ? "s" : ""}
+                  C'était <b>{result.name}</b> · {result.remaining} vie{result.remaining > 1 ? "s" : ""} restante{result.remaining > 1 ? "s" : ""}
                 </p>
               </>
             )}
