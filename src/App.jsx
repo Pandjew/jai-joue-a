@@ -752,6 +752,7 @@ export default function App() {
   };
 
   const saveRun = async (s, k) => {
+    if (s <= 0) return; // on n'enregistre pas les parties à 0 point
     try {
       await addDoc(collection(db, "runs"), {
         pseudo: (pseudo || "Joueur").slice(0, 24),
@@ -775,6 +776,7 @@ export default function App() {
         const snap = await getDocs(query(collection(db, "runs"), where("mode", "==", boardCat)));
         const rows = snap.docs
           .map((d) => d.data())
+          .filter((r) => (r.points || 0) > 0)
           .sort((a, b) => b.points - a.points || b.correct - a.correct)
           .slice(0, 20);
         if (!cancel) setBoardRows(rows);
