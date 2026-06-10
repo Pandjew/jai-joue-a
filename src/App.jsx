@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import {
   ChevronRight, RotateCcw, Home, HelpCircle,
-  Check, X, Crown, Globe, Star, Award,
+  Check, X, Crown, Globe, Star, Award, Heart,
 } from "lucide-react";
 import generated from "./players.json";
 import { db } from "./firebase";
@@ -727,6 +727,7 @@ export default function App() {
   const [used, setUsed] = useState([]);
   const [guess, setGuess] = useState("");
   const [result, setResult] = useState(null);
+  const [lives, setLives] = useState(3);
   const [boardCat, setBoardCat] = useState("global");
   const [boardRows, setBoardRows] = useState([]);
   const [boardLoading, setBoardLoading] = useState(false);
@@ -739,7 +740,7 @@ export default function App() {
     const first = pick(poolFor(mode), []);
     setPlayer(first);
     setUsed([first.name]);
-    setHint(0); setScore(0); setStreak(0); setGuess(""); setResult(null);
+    setHint(0); setScore(0); setStreak(0); setGuess(""); setResult(null); setLives(3);
     setScreen("game");
   };
 
@@ -788,7 +789,7 @@ export default function App() {
   }, [screen, boardCat, boardNonce]);
 
   const submit = () => {
-    if (!guess.trim() || (result && result.ok)) return;
+    if (!guess.trim() || (result && (result.ok || result.life))) return;
     if (isCorrect(guess, player)) {
       const pts = potential;
       setScore(score + pts);
@@ -801,9 +802,23 @@ export default function App() {
     }
   };
 
+  // Utiliser une vie : révèle le joueur (0 pt), la série continue. 3e vie = fin auto.
+  const useLife = () => {
+    if (result && (result.ok || result.life)) return;
+    const remaining = lives - 1;
+    setLives(remaining);
+    if (remaining <= 0) {
+      saveRun(score, streak);
+      setResult({ ok: false, name: player.name, outOfLives: true });
+      setScreen("gameover");
+    } else {
+      setResult({ life: true, name: player.name, remaining });
+    }
+  };
+
   const endVoluntarily = () => {
     saveRun(score, streak);
-    setResult({ ok: false, name: null, banked: true });
+    setResult({ ok: false, name: player.name, banked: true });
     setScreen("gameover");
   };
 
@@ -818,7 +833,7 @@ export default function App() {
           <input
             value={pseudo}
             onChange={(e) => setPseudo(e.target.value)}
-            placeholder="ex. Quentin"
+            placeholder="ex. Boloboils"
             className="w-full rounded-xl border border-emerald-300/15 bg-emerald-950/50 px-4 py-3 text-base outline-none ring-emerald-400/50 placeholder:text-emerald-200/30 focus:ring-2"
           />
         </div>
@@ -871,6 +886,12 @@ export default function App() {
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1 text-emerald-300"><Award size={15} /> <b>{score}</b> pts</span>
             <span className="flex items-center gap-1 text-amber-300">🔥 <b>{streak}</b></span>
+            <span className="flex items-center gap-0.5">
+              {[0, 1, 2].map((i) => (
+                <Heart key={i} size={15} fill={i < lives ? "currentColor" : "none"}
+                  className={i < lives ? "text-rose-400" : "text-emerald-200/25"} />
+              ))}
+            </span>
           </div>
         </div>
 
@@ -915,14 +936,14 @@ export default function App() {
 
         <div className="mt-3 grid grid-cols-2 gap-2.5">
           <button
-            disabled={hint >= 1 || (result && result.ok)}
+            disabled={hint >= 1 || (result && (result.ok || result.life))}
             onClick={() => setHint(1)}
             className="flex items-center justify-center gap-1.5 rounded-xl border border-emerald-300/12 bg-emerald-950/50 py-2.5 text-xs font-semibold disabled:opacity-40"
           >
             <HelpCircle size={14} /> Indice 1 · années
           </button>
           <button
-            disabled={hint >= 2 || (result && result.ok)}
+            disabled={hint >= 2 || (result && (result.ok || result.life))}
             onClick={() => setHint(2)}
             className="flex items-center justify-center gap-1.5 rounded-xl border border-emerald-300/12 bg-emerald-950/50 py-2.5 text-xs font-semibold disabled:opacity-40"
           >
@@ -930,12 +951,25 @@ export default function App() {
           </button>
         </div>
 
-        {result && result.ok ? (
-          <div className="mt-4 rounded-2xl border border-emerald-400/40 bg-emerald-500/15 p-4 text-center">
-            <div className="flex items-center justify-center gap-2 text-emerald-300">
-              <Check size={20} /> <span className="font-black">Bravo !</span>
-            </div>
-            <p className="mt-1 text-sm">C'était <b>{result.name}</b> — <b className="text-emerald-300">+{result.pts} pts</b></p>
+        {result && (result.ok || result.life) ? (
+          <div className={`mt-4 rounded-2xl border p-4 text-center ${result.ok ? "border-emerald-400/40 bg-emerald-500/15" : "border-amber-400/40 bg-amber-500/10"}`}>
+            {result.ok ? (
+              <>
+                <div className="flex items-center justify-center gap-2 text-emerald-300">
+                  <Check size={20} /> <span className="font-black">Bravo !</span>
+                </div>
+                <p className="mt-1 text-sm">C'était <b>{result.name}</b> — <b className="text-emerald-300">+{result.pts} pts</b></p>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center justify-center gap-2 text-amber-300">
+                  <Heart size={18} fill="currentColor" /> <span className="font-black">Vie utilisée</span>
+                </div>
+                <p className="mt-1 text-sm">
+                  C'était <b>{result.name}</b> — 0 pt · {result.remaining} vie{result.remaining > 1 ? "s" : ""} restante{result.remaining > 1 ? "s" : ""}
+                </p>
+              </>
+            )}
             <button
               onClick={nextPlayer}
               className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-black text-emerald-950 hover:bg-emerald-400"
@@ -958,8 +992,14 @@ export default function App() {
               </button>
             </div>
             <button
+              onClick={useLife}
+              className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-rose-400/30 bg-rose-500/10 py-2.5 text-xs font-semibold text-rose-200 hover:bg-rose-500/20"
+            >
+              <Heart size={14} fill="currentColor" /> Utiliser une vie — révéler (0 pt) · {lives} restante{lives > 1 ? "s" : ""}
+            </button>
+            <button
               onClick={endVoluntarily}
-              className="mt-3 w-full text-center text-xs text-emerald-200/40 underline-offset-2 hover:text-emerald-200/70 hover:underline"
+              className="mt-2 w-full text-center text-xs text-emerald-200/40 underline-offset-2 hover:text-emerald-200/70 hover:underline"
             >
               Terminer la partie et enregistrer le score
             </button>
@@ -976,9 +1016,14 @@ export default function App() {
       <Shell onHome={() => setScreen("home")} onBoard={() => setScreen("board")}>
         <div className={`rounded-2xl border p-5 text-center ${result?.banked ? "border-emerald-400/40 bg-emerald-500/10" : "border-rose-400/40 bg-rose-500/10"}`}>
           {result?.banked ? <UclCup size={42} className="mx-auto text-amber-300" /> : <X size={40} className="mx-auto text-rose-300" />}
-          <h2 className="mt-2 text-xl font-black">{result?.banked ? "Partie terminée" : "Fin de partie !"}</h2>
-          {!result?.banked && result?.name && (
-            <p className="mt-1 text-sm text-emerald-100/80">La réponse était <b className="text-rose-200">{result.name}</b></p>
+          <h2 className="mt-2 text-xl font-black">
+            {result?.banked ? "Partie terminée" : result?.outOfLives ? "Plus de vies !" : "Fin de partie !"}
+          </h2>
+          {result?.name && (
+            <p className="mt-1 text-sm text-emerald-100/80">
+              {result.banked ? "Tu t'es arrêté sur " : result.outOfLives ? "Tu bloquais sur " : "La réponse était "}
+              <b className={result.banked ? "text-emerald-200" : "text-rose-200"}>{result.name}</b>
+            </p>
           )}
           <div className="mt-4 flex items-center justify-center gap-6">
             <div>
