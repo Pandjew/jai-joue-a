@@ -1,0 +1,13 @@
+{
+  "name": "J'ai joué à",
+  "short_name": "J'ai joué à",
+  "description": "Devine le footballeur d'après les clubs de sa carrière.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#06281a",
+  "theme_color": "#06281a",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

@@ -1,9 +1,11 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   ChevronRight, RotateCcw, Home, HelpCircle,
-  Check, X, Crown, Globe, Star, Flag, Award,
+  Check, X, Crown, Globe, Star, Award,
 } from "lucide-react";
 import generated from "./players.json";
+import { db } from "./firebase";
+import { collection, addDoc, getDocs, query, where, serverTimestamp } from "firebase/firestore";
 
 /**
  * "J'AI JOUÉ À" — jeu de devinette de footballeurs
@@ -574,12 +576,44 @@ function UclCup({ size = 18, className = "" }) {
   );
 }
 
+// ---- Drapeaux des pays (SVG inline, domaine public) ----
+const flagStyle = { borderRadius: 3, boxShadow: "inset 0 0 0 1px rgba(0,0,0,.3)" };
+const wrap = (size, children, className) => (
+  <svg className={className} style={flagStyle} width={Math.round(size * 1.4)} height={size} viewBox="0 0 9 6">
+    {children}
+  </svg>
+);
+const FlagFR = ({ size = 18, className = "" }) => wrap(size, (<>
+  <rect width="9" height="6" fill="#fff" />
+  <rect width="3" height="6" fill="#0055A4" />
+  <rect x="6" width="3" height="6" fill="#EF4135" />
+</>), className);
+const FlagIT = ({ size = 18, className = "" }) => wrap(size, (<>
+  <rect width="9" height="6" fill="#fff" />
+  <rect width="3" height="6" fill="#009246" />
+  <rect x="6" width="3" height="6" fill="#CE2B37" />
+</>), className);
+const FlagES = ({ size = 18, className = "" }) => wrap(size, (<>
+  <rect width="9" height="6" fill="#AA151B" />
+  <rect y="1.5" width="9" height="3" fill="#F1BF00" />
+</>), className);
+const FlagDE = ({ size = 18, className = "" }) => wrap(size, (<>
+  <rect width="9" height="2" fill="#000" />
+  <rect y="2" width="9" height="2" fill="#DD0000" />
+  <rect y="4" width="9" height="2" fill="#FFCE00" />
+</>), className);
+const FlagEN = ({ size = 18, className = "" }) => wrap(size, (<>
+  <rect width="9" height="6" fill="#fff" />
+  <rect x="3.9" width="1.2" height="6" fill="#CE1124" />
+  <rect y="2.4" width="9" height="1.2" fill="#CE1124" />
+</>), className);
+
 const MODES = [
-  { id: "l1", label: "Ligue 1", desc: "Passés par la Ligue 1", icon: Flag, color: "text-blue-300" },
-  { id: "pl", label: "Premier League", desc: "Passés par la D1 anglaise", icon: Flag, color: "text-purple-300" },
-  { id: "sa", label: "Serie A", desc: "Passés par la D1 italienne", icon: Flag, color: "text-sky-300" },
-  { id: "bl", label: "Bundesliga", desc: "Passés par la D1 allemande", icon: Flag, color: "text-red-300" },
-  { id: "lg", label: "Liga", desc: "Passés par la D1 espagnole", icon: Flag, color: "text-orange-300" },
+  { id: "l1", label: "Ligue 1", desc: "Passés par la Ligue 1", icon: FlagFR },
+  { id: "pl", label: "Premier League", desc: "Passés par la D1 anglaise", icon: FlagEN },
+  { id: "sa", label: "Serie A", desc: "Passés par la D1 italienne", icon: FlagIT },
+  { id: "bl", label: "Bundesliga", desc: "Passés par la D1 allemande", icon: FlagDE },
+  { id: "lg", label: "Liga", desc: "Passés par la D1 espagnole", icon: FlagES },
   { id: "europe", label: "Europe", desc: "≥ 1 club du top 5", icon: Star, color: "text-amber-300" },
   { id: "global", label: "Global", desc: "Joueurs du monde entier", icon: Globe, color: "text-emerald-300" },
   { id: "legends", label: "XI de légende", desc: "Uniquement les légendes", icon: Crown, color: "text-yellow-300" },
@@ -693,7 +727,10 @@ export default function App() {
   const [used, setUsed] = useState([]);
   const [guess, setGuess] = useState("");
   const [result, setResult] = useState(null);
-  const [board, setBoard] = useState([]);
+  const [boardCat, setBoardCat] = useState("global");
+  const [boardRows, setBoardRows] = useState([]);
+  const [boardLoading, setBoardLoading] = useState(false);
+  const [boardNonce, setBoardNonce] = useState(0);
 
   const potential = 3 - hint;
 
@@ -713,12 +750,42 @@ export default function App() {
     setHint(0); setGuess(""); setResult(null);
   };
 
-  const saveRun = (s, k) => {
-    setBoard((b) =>
-      [...b, { pseudo: pseudo || "Joueur", mode, points: s, correct: k, ts: Date.now() }]
-        .sort((a, b) => b.points - a.points || b.correct - a.correct)
-    );
+  const saveRun = async (s, k) => {
+    try {
+      await addDoc(collection(db, "runs"), {
+        pseudo: (pseudo || "Joueur").slice(0, 24),
+        mode,
+        points: s,
+        correct: k,
+        createdAt: serverTimestamp(),
+      });
+    } catch (e) {
+      console.error("Firestore (écriture) :", e);
+    }
   };
+
+  // Charge le classement de la catégorie sélectionnée à l'ouverture de l'écran
+  useEffect(() => {
+    if (screen !== "board") return;
+    let cancel = false;
+    setBoardLoading(true);
+    (async () => {
+      try {
+        const snap = await getDocs(query(collection(db, "runs"), where("mode", "==", boardCat)));
+        const rows = snap.docs
+          .map((d) => d.data())
+          .sort((a, b) => b.points - a.points || b.correct - a.correct)
+          .slice(0, 20);
+        if (!cancel) setBoardRows(rows);
+      } catch (e) {
+        console.error("Firestore (lecture) :", e);
+        if (!cancel) setBoardRows([]);
+      } finally {
+        if (!cancel) setBoardLoading(false);
+      }
+    })();
+    return () => { cancel = true; };
+  }, [screen, boardCat, boardNonce]);
 
   const submit = () => {
     if (!guess.trim() || (result && result.ok)) return;
@@ -771,7 +838,7 @@ export default function App() {
                     : "border-emerald-300/12 bg-emerald-950/40 hover:bg-emerald-900/40"
                 }`}
               >
-                <Icon size={18} className={`mb-1.5 ${m.color}`} />
+                <Icon size={20} className={`mb-1.5 ${m.color || ""}`} />
                 <div className="text-sm font-bold leading-tight">{m.label}</div>
                 <div className="text-[11px] leading-tight text-emerald-200/50">{m.desc}</div>
                 <div className="mt-1 text-[10px] text-emerald-200/40">{poolFor(m.id).length} joueurs</div>
@@ -959,23 +1026,54 @@ export default function App() {
   if (screen === "board") {
     return (
       <Shell onHome={() => setScreen("home")} onBoard={() => setScreen("board")}>
-        <div className="mb-1 flex items-center gap-2">
-          <UclCup size={24} className="text-amber-300" />
-          <h2 className="text-lg font-black">Meilleures séries</h2>
+        <div className="mb-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <UclCup size={24} className="text-amber-300" />
+            <h2 className="text-lg font-black">Classement</h2>
+          </div>
+          <button
+            onClick={() => setBoardNonce((n) => n + 1)}
+            className="rounded-full bg-emerald-900/60 px-3 py-1.5 text-xs font-semibold text-emerald-200 ring-1 ring-emerald-300/15 hover:bg-emerald-900"
+          >
+            Actualiser
+          </button>
         </div>
-        <p className="mb-4 text-[11px] text-emerald-200/40">Classé par points, puis par longueur de série.</p>
-        {board.length === 0 ? (
+
+        {/* Onglets par catégorie de jeu */}
+        <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1">
+          {MODES.map((m) => (
+            <button
+              key={m.id}
+              onClick={() => setBoardCat(m.id)}
+              className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                boardCat === m.id
+                  ? "bg-emerald-500 text-emerald-950"
+                  : "bg-emerald-950/50 text-emerald-200/70 ring-1 ring-emerald-300/12 hover:bg-emerald-900/50"
+              }`}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+
+        <p className="mb-3 text-[11px] text-emerald-200/40">Meilleures séries — classé par points, puis par longueur de série.</p>
+
+        {boardLoading ? (
+          <div className="rounded-2xl border border-emerald-300/12 bg-emerald-950/40 p-8 text-center text-sm text-emerald-200/50">
+            Chargement…
+          </div>
+        ) : boardRows.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-emerald-300/20 p-8 text-center text-sm text-emerald-200/40">
-            Aucune partie enregistrée pour l'instant.
+            Aucune partie enregistrée dans cette catégorie.
           </div>
         ) : (
           <ul className="space-y-2">
-            {board.slice(0, 20).map((r, i) => (
-              <li key={r.ts} className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 ${i === 0 ? "border-amber-400/40 bg-amber-500/10" : "border-emerald-300/12 bg-emerald-950/40"}`}>
+            {boardRows.map((r, i) => (
+              <li key={i} className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 ${i === 0 ? "border-amber-400/40 bg-amber-500/10" : "border-emerald-300/12 bg-emerald-950/40"}`}>
                 <span className={`w-6 text-center text-sm font-black ${i === 0 ? "text-amber-300" : "text-emerald-200/50"}`}>{i + 1}</span>
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-bold">{r.pseudo}</div>
-                  <div className="text-[11px] text-emerald-200/45">{MODES.find((m) => m.id === r.mode)?.label} · série de {r.correct}</div>
+                  <div className="text-[11px] text-emerald-200/45">série de {r.correct}</div>
                 </div>
                 <div className="text-right">
                   <div className="text-lg font-black text-emerald-300">{r.points}</div>
@@ -985,6 +1083,7 @@ export default function App() {
             ))}
           </ul>
         )}
+
         <button onClick={() => setScreen("home")} className="mt-5 flex w-full items-center justify-center gap-1.5 rounded-xl bg-emerald-500 py-3 font-black text-emerald-950 hover:bg-emerald-400">
           <Home size={16} /> Retour au menu
         </button>
