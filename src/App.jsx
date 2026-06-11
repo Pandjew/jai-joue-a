@@ -619,11 +619,31 @@ const MODES = [
   { id: "legends", label: "XI de légende", desc: "Uniquement les légendes", icon: Crown, color: "text-yellow-300" },
 ];
 
-function poolFor(mode) {
+const DIFFICULTIES = [
+  { id: "easy", label: "Facile", desc: "Stars uniquement", frac: 0.2 },
+  { id: "normal", label: "Normal", desc: "Joueurs connus", frac: 0.5 },
+  { id: "hard", label: "Difficile", desc: "Toute la base", frac: 1 },
+];
+const DIFF_FRAC = Object.fromEntries(DIFFICULTIES.map((d) => [d.id, d.frac]));
+
+function basePool(mode) {
   if (mode === "global") return PLAYERS;
   if (mode === "legends") return PLAYERS.filter((p) => p.legend);
   if (mode === "europe") return PLAYERS.filter((p) => p.leagues && p.leagues.length > 0);
   return PLAYERS.filter((p) => p.leagues && p.leagues.includes(mode));
+}
+
+// Filtre de difficulté : garde les joueurs les plus populaires (champ `pop`).
+// Sans signal de popularité (ancienne base), aucun filtre n'est appliqué.
+function poolFor(mode, difficulty = "hard") {
+  const pool = basePool(mode);
+  const frac = DIFF_FRAC[difficulty] ?? 1;
+  if (frac >= 1) return pool;
+  const hasPop = pool.some((p) => typeof p.pop === "number");
+  if (!hasPop) return pool;
+  return [...pool]
+    .sort((a, b) => (b.pop || 0) - (a.pop || 0))
+    .slice(0, Math.max(8, Math.ceil(pool.length * frac)));
 }
 
 const norm = (s) =>
@@ -719,6 +739,7 @@ export default function App() {
   const [screen, setScreen] = useState("home");
   const [pseudo, setPseudo] = useState("");
   const [mode, setMode] = useState("global");
+  const [difficulty, setDifficulty] = useState("normal");
 
   const [player, setPlayer] = useState(null);
   const [hint, setHint] = useState(0);
@@ -736,8 +757,8 @@ export default function App() {
   const potential = 3 - hint;
 
   const startGame = () => {
-    if (!poolFor(mode).length) return;
-    const first = pick(poolFor(mode), []);
+    if (!poolFor(mode, difficulty).length) return;
+    const first = pick(poolFor(mode, difficulty), []);
     setPlayer(first);
     setUsed([first.name]);
     setHint(0); setScore(0); setStreak(0); setGuess(""); setResult(null); setLives(3);
@@ -745,7 +766,7 @@ export default function App() {
   };
 
   const nextPlayer = () => {
-    const next = pick(poolFor(mode), used);
+    const next = pick(poolFor(mode, difficulty), used);
     setPlayer(next);
     setUsed((u) => [...u, next.name]);
     setHint(0); setGuess(""); setResult(null);
@@ -846,6 +867,24 @@ export default function App() {
           />
         </div>
 
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-emerald-300/70">Difficulté</p>
+        <div className="mb-5 grid grid-cols-3 gap-2">
+          {DIFFICULTIES.map((d) => (
+            <button
+              key={d.id}
+              onClick={() => setDifficulty(d.id)}
+              className={`rounded-xl border p-2.5 text-center transition ${
+                difficulty === d.id
+                  ? "border-emerald-400 bg-emerald-500/15 ring-2 ring-emerald-400/40"
+                  : "border-emerald-300/12 bg-emerald-950/40 hover:bg-emerald-900/40"
+              }`}
+            >
+              <div className="text-sm font-bold">{d.label}</div>
+              <div className="text-[10px] leading-tight text-emerald-200/50">{d.desc}</div>
+            </button>
+          ))}
+        </div>
+
         <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-emerald-300/70">Mode de jeu</p>
         <div className="grid grid-cols-2 gap-2.5">
           {MODES.map((m) => {
@@ -864,7 +903,7 @@ export default function App() {
                 <Icon size={20} className={`mb-1.5 ${m.color || ""}`} />
                 <div className="text-sm font-bold leading-tight">{m.label}</div>
                 <div className="text-[11px] leading-tight text-emerald-200/50">{m.desc}</div>
-                <div className="mt-1 text-[10px] text-emerald-200/40">{poolFor(m.id).length} joueurs</div>
+                <div className="mt-1 text-[10px] text-emerald-200/40">{poolFor(m.id, difficulty).length} joueurs</div>
               </button>
             );
           })}

@@ -104,7 +104,7 @@ async function main() {
 
   // --- Joueurs candidats (passés par un club graine, notables, actifs 2000+) ---
   const candQuery = `
-    SELECT DISTINCT ?player WHERE {
+    SELECT DISTINCT ?player ?links WHERE {
       VALUES ?club { ${seedValues} }
       ?player wdt:P106 wd:${Q_PLAYER} ;
               wikibase:sitelinks ?links ;
@@ -115,7 +115,9 @@ async function main() {
       FILTER( ?links >= ${MIN_SITELINKS} )
     }`;
   const cand = await sparql(candQuery);
-  const playerQids = [...new Set(cand.map((r) => qid(r.player.value)))];
+  const popByQid = {};
+  for (const r of cand) popByQid[qid(r.player.value)] = +r.links.value;
+  const playerQids = Object.keys(popByQid);
   console.error(`→ ${playerQids.length} joueurs candidats`);
 
   // --- Carrières (par lots) ---
@@ -147,7 +149,7 @@ async function main() {
       const pid = qid(r.player.value);
       const name = r.playerLabel?.value;
       if (!name || /^Q\d+$/.test(name)) continue;
-      players[pid] ||= { name, leaguesSet: new Set(), career: [] };
+      players[pid] ||= { name, pop: popByQid[pid] || 0, leaguesSet: new Set(), career: [] };
       const sy = r.start ? +r.start.value.slice(0, 4) : null;
       const ey = r.end ? +r.end.value.slice(0, 4) : null;
       players[pid].career.push({
@@ -176,7 +178,7 @@ async function main() {
           apps: c.apps,    // null si inconnu
           goals: c.goals,  // null si inconnu
         }));
-      return { name: p.name, leagues: [...p.leaguesSet], career };
+      return { name: p.name, pop: p.pop, leagues: [...p.leaguesSet], career };
     })
     .filter((p) => p.career.length >= 2 && p.leagues.length > 0)
     .sort((a, b) => a.name.localeCompare(b.name));
