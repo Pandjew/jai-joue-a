@@ -778,6 +778,7 @@ export default function App() {
       await addDoc(collection(db, "runs"), {
         pseudo: (pseudo || "Joueur").slice(0, 24),
         mode,
+        difficulty,
         points: s,
         correct: k,
         createdAt: serverTimestamp(),
@@ -798,8 +799,7 @@ export default function App() {
         const rows = snap.docs
           .map((d) => d.data())
           .filter((r) => (r.points || 0) > 0)
-          .sort((a, b) => b.points - a.points || b.correct - a.correct)
-          .slice(0, 20);
+          .sort((a, b) => b.points - a.points || b.correct - a.correct);
         if (!cancel) setBoardRows(rows);
       } catch (e) {
         console.error("Firestore (lecture) :", e);
@@ -967,7 +967,12 @@ export default function App() {
               <li key={i} className="flex items-center gap-3 px-3 py-2.5">
                 <Crest club={c.club} />
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-bold">{c.club}</div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="truncate text-sm font-bold">{c.club}</span>
+                    {c.loan && (
+                      <span className="shrink-0 rounded bg-amber-500/20 px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-amber-300">prêt</span>
+                    )}
+                  </div>
                   {hint >= 1 && <div className="text-xs text-emerald-300/90">{c.years || "?"}</div>}
                 </div>
                 {hint >= 2 && (
@@ -1092,7 +1097,12 @@ export default function App() {
               {full.career.map((c, i) => (
                 <li key={i} className="flex items-center gap-3 px-3 py-2 text-sm">
                   <Crest club={c.club} size={30} />
-                  <span className="flex-1 font-semibold">{c.club}</span>
+                  <span className="flex-1 font-semibold">
+                    {c.club}
+                    {c.loan && (
+                      <span className="ml-1.5 rounded bg-amber-500/20 px-1 py-px text-[9px] font-bold uppercase text-amber-300">prêt</span>
+                    )}
+                  </span>
                   <span className="text-xs text-emerald-200/50">{c.years || "?"} · {c.apps ?? "—"}m / {c.goals ?? "—"}b</span>
                 </li>
               ))}
@@ -1155,26 +1165,41 @@ export default function App() {
           <div className="rounded-2xl border border-emerald-300/12 bg-emerald-950/40 p-8 text-center text-sm text-emerald-200/50">
             Chargement…
           </div>
-        ) : boardRows.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-emerald-300/20 p-8 text-center text-sm text-emerald-200/40">
-            Aucune partie enregistrée dans cette catégorie.
-          </div>
         ) : (
-          <ul className="space-y-2">
-            {boardRows.map((r, i) => (
-              <li key={i} className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 ${i === 0 ? "border-amber-400/40 bg-amber-500/10" : "border-emerald-300/12 bg-emerald-950/40"}`}>
-                <span className={`w-6 text-center text-sm font-black ${i === 0 ? "text-amber-300" : "text-emerald-200/50"}`}>{i + 1}</span>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-bold">{r.pseudo}</div>
-                  <div className="text-[11px] text-emerald-200/45">série de {r.correct}</div>
+          <div className="space-y-4">
+            {DIFFICULTIES.map((d) => {
+              const rows = boardRows.filter((r) => (r.difficulty || "hard") === d.id).slice(0, 10);
+              return (
+                <div key={d.id}>
+                  <div className="mb-1.5 flex items-center gap-2">
+                    <span className="rounded-md bg-emerald-500/15 px-2 py-0.5 text-xs font-black uppercase tracking-wide text-emerald-300">{d.label}</span>
+                    <span className="text-[10px] text-emerald-200/40">{d.desc}</span>
+                  </div>
+                  {rows.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-emerald-300/15 p-4 text-center text-xs text-emerald-200/35">
+                      Aucune partie dans ce niveau.
+                    </div>
+                  ) : (
+                    <ul className="space-y-1.5">
+                      {rows.map((r, i) => (
+                        <li key={i} className={`flex items-center gap-3 rounded-xl border px-3 py-2 ${i === 0 ? "border-amber-400/40 bg-amber-500/10" : "border-emerald-300/12 bg-emerald-950/40"}`}>
+                          <span className={`w-5 text-center text-xs font-black ${i === 0 ? "text-amber-300" : "text-emerald-200/50"}`}>{i + 1}</span>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-bold">{r.pseudo}</div>
+                            <div className="text-[11px] text-emerald-200/45">série de {r.correct}</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-base font-black text-emerald-300">{r.points}</div>
+                            <div className="text-[10px] uppercase tracking-wider text-emerald-200/40">pts</div>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
-                <div className="text-right">
-                  <div className="text-lg font-black text-emerald-300">{r.points}</div>
-                  <div className="text-[10px] uppercase tracking-wider text-emerald-200/40">pts</div>
-                </div>
-              </li>
-            ))}
-          </ul>
+              );
+            })}
+          </div>
         )}
 
         <button onClick={() => setScreen("home")} className="mt-5 flex w-full items-center justify-center gap-1.5 rounded-xl bg-emerald-500 py-3 font-black text-emerald-950 hover:bg-emerald-400">

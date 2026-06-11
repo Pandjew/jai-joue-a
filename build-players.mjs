@@ -126,7 +126,7 @@ async function main() {
     const slice = playerQids.slice(i, i + BATCH);
     const values = slice.map((q) => "wd:" + q).join(" ");
     const q = `
-      SELECT ?player ?playerLabel ?club ?clubLabel ?start ?end ?apps ?goals WHERE {
+      SELECT ?player ?playerLabel ?club ?clubLabel ?start ?end ?apps ?goals ?acqLabel WHERE {
         VALUES ?player { ${values} }
         ?player p:P54 ?st .
         ?st ps:P54 ?club .
@@ -135,6 +135,7 @@ async function main() {
         OPTIONAL { ?st pq:P582 ?end . }
         OPTIONAL { ?st pq:P1350 ?apps . }
         OPTIONAL { ?st pq:P1351 ?goals . }
+        OPTIONAL { ?st pq:P1642 ?acq . }
         SERVICE wikibase:label { bd:serviceParam wikibase:language "fr,en". }
       }`;
     let rows;
@@ -158,6 +159,7 @@ async function main() {
         sy, ey,
         apps: r.apps ? +r.apps.value : null,
         goals: r.goals ? +r.goals.value : null,
+        loan: r.acqLabel ? /loan|pr[êe]t/i.test(r.acqLabel.value) : false,
       });
       const lg = clubLeague[qid(r.club.value)];
       if (lg) players[pid].leaguesSet.add(lg);
@@ -177,6 +179,7 @@ async function main() {
           years: c.sy ? `${c.sy}–${c.ey ?? ""}` : "",
           apps: c.apps,    // null si inconnu
           goals: c.goals,  // null si inconnu
+          ...(c.loan ? { loan: true } : {}),
         }));
       return { name: p.name, pop: p.pop, leagues: [...p.leaguesSet], career };
     })
