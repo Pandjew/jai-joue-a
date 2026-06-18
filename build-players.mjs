@@ -51,8 +51,15 @@ const SEED_CLUBS = [
   { name: "Borussia Dortmund", league: "bl" },
 ];
 
-const Q_CLUB = "Q476028";      // club de football
-const Q_PLAYER = "Q937857";    // footballeur
+const Q_CLUB = "Q476028";        // club de football
+const Q_SPORTS_CLUB = "Q847017"; // club omnisports (ex. FC Barcelone)
+const Q_PLAYER = "Q937857";      // footballeur
+const Q_MALE = "Q6581097";       // sexe masculin
+const CLUB_MIN_LINKS = 6;        // en dessous : club jugé non pro (retiré en début de carrière)
+const MIN_CAREER_APPS = 100;     // carrière finie : on écarte sous ce total de matchs
+const SAFE_POP = 50;             // au-dessus : joueur très connu, jamais écarté par la règle des matchs
+const RESERVE_RE = /(\sB|\sC|\sII|\sIII)$|castilla|réserve|reserves?\b/i; // équipes réserves
+const NATIONAL_RE = /national.*football team|équipe d['e].+ de football|\bsélection\b/i; // sélections nationales
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const qid = (uri) => uri.split("/").pop();
 
@@ -107,6 +114,7 @@ async function main() {
     SELECT DISTINCT ?player ?links WHERE {
       VALUES ?club { ${seedValues} }
       ?player wdt:P106 wd:${Q_PLAYER} ;
+              wdt:P21 wd:${Q_MALE} ;
               wikibase:sitelinks ?links ;
               p:P54 ?st .
       ?st ps:P54 ?club .
@@ -126,11 +134,12 @@ async function main() {
     const slice = playerQids.slice(i, i + BATCH);
     const values = slice.map((q) => "wd:" + q).join(" ");
     const q = `
-      SELECT ?player ?playerLabel ?club ?clubLabel ?start ?end ?apps ?goals ?acqLabel WHERE {
+      SELECT ?player ?playerLabel ?club ?clubLabel ?start ?end ?apps ?goals ?acqLabel ?clinks ?ispart WHERE {
         VALUES ?player { ${values} }
         ?player p:P54 ?st .
         ?st ps:P54 ?club .
-        ?club wdt:P31 wd:${Q_CLUB} .
+        ?club wikibase:sitelinks ?clinks .
+        BIND(EXISTS { ?club wdt:P361 [] } AS ?ispart)
         OPTIONAL { ?st pq:P580 ?start . }
         OPTIONAL { ?st pq:P582 ?end . }
         OPTIONAL { ?st pq:P1350 ?apps . }
@@ -160,6 +169,8 @@ async function main() {
         apps: r.apps ? +r.apps.value : null,
         goals: r.goals ? +r.goals.value : null,
         loan: r.acqLabel ? /loan|pr[êe]t/i.test(r.acqLabel.value) : false,
+        clinks: r.clinks ? +r.clinks.value : 0,
+        ispart: r.ispart?.value === "true",
       });
       const lg = clubLeague[qid(r.club.value)];
       if (lg) players[pid].leaguesSet.add(lg);
@@ -171,19 +182,50 @@ async function main() {
   // --- Mise en forme finale (format de l'app) ---
   const out = Object.values(players)
     .map((p) => {
-      const career = p.career
-        .filter((c, idx, arr) => arr.findIndex((x) => x.clubQ === c.clubQ && x.sy === c.sy) === idx) // dédoublonne
-        .sort((a, b) => (a.sy || 9999) - (b.sy || 9999))
-        .map((c) => ({
-          club: c.club,
-          years: c.sy ? `${c.sy}–${c.ey ?? ""}` : "",
-          apps: c.apps,    // null si inconnu
-          goals: c.goals,  // null si inconnu
-          ...(c.loan ? { loan: true } : {}),
-        }));
-      return { name: p.name, pop: p.pop, leagues: [...p.leaguesSet], career };
+      let career = p.career.slice();
+
+      // 0) retire réserves/sections (équipe rattachée à un club parent ET peu notable) et sélections nationales
+      career = career.filter((c) =>
+        !NATIONAL_RE.test(c.club) &&
+        !RESERVE_RE.test(c.club) &&
+        !(c.ispart && (c.clinks || 0) < 30)
+      );
+
+      // 1) retire les entrées sans date quand le même club a une entrée datée (doublons fantômes, ex. Harry Kane)
+      const datedClubs = new Set(career.filter((c) => c.sy != null).map((c) => c.clubQ));
+      career = career.filter((c) => c.sy != null || !datedClubs.has(c.clubQ));
+
+      // 2) dédoublonne (même club, même année de début)
+      career = career.filter((c, idx, arr) => arr.findIndex((x) => x.clubQ === c.clubQ && x.sy === c.sy) === idx);
+
+      // 3) tri chronologique
+      career.sort((a, b) => (a.sy || 9999) - (b.sy || 9999));
+
+      // 4) retire les tout premiers clubs non pros (peu notables) en tête de carrière
+      const firstPro = career.findIndex((c) => (c.clinks || 0) >= CLUB_MIN_LINKS);
+      if (firstPro > 0) career = career.slice(firstPro);
+
+      // 5) carrière en cours ? + total de matchs connus
+      const active = career.some((c) => c.sy != null && c.ey == null);
+      const totalApps = career.reduce((s, c) => s + (c.apps || 0), 0);
+
+      const display = career.map((c) => ({
+        club: c.club,
+        years: c.sy ? `${c.sy}–${c.ey ?? ""}` : "",
+        apps: c.apps,
+        goals: c.goals,
+        ...(c.loan ? { loan: true } : {}),
+      }));
+
+      return { name: p.name, pop: p.pop, leagues: [...p.leaguesSet], career: display, _active: active, _apps: totalApps };
     })
-    .filter((p) => p.career.length >= 2 && p.leagues.length > 0)
+    .filter((p) => {
+      if (p.career.length < 2 || p.leagues.length === 0) return false;
+      // carrière finie, total de matchs connu mais < 100, et pas une vedette -> écarté
+      if (!p._active && p._apps > 0 && p._apps < MIN_CAREER_APPS && p.pop < SAFE_POP) return false;
+      return true;
+    })
+    .map(({ _active, _apps, ...p }) => p) // retire les champs internes
     .sort((a, b) => a.name.localeCompare(b.name));
 
   process.stdout.write(JSON.stringify(out, null, 2));

@@ -1,5 +1,4 @@
 Adriano
-Aimé Jacquet
 Alessandro Del Piero
 Alessandro Nesta
 Andrea Pirlo
@@ -10,7 +9,6 @@ Arjen Robben
 Arturo Vidal
 Ashley Cole
 Bastian Schweinsteiger
-Bixente Lizarazu
 Blaise Matuidi
 Cafu
 Carlos Tévez
@@ -25,11 +23,8 @@ Cristiano Ronaldo
 Cristiano Zanetti
 Dani Alves
 Dani Carvajal
-Daniel Van Buyten
-Danny Welbeck
 Dante Bonfim Costa Santos
 David Beckham
-David de Gea
 David Luiz
 David Trezeguet
 David Villa
@@ -216,14 +211,11 @@ Thierry Henry
 Thomas Müller
 Tim Howard
 Toby Alderweireld
-Tomáš Rosický
 Toni Kroos
-Víctor Valdés
 Vincent Kompany
 Vinicius Júnior
 Wayne Rooney
 Wesley Sneijder
-Willian
 Wojciech Szczęsny
 Xabi Alonso
 Xherdan Shaqiri
