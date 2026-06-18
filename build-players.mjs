@@ -130,10 +130,10 @@ async function main() {
 
   // --- Carrières (par lots) ---
   const players = {};
-  for (let i = 0; i < playerQids.length; i += BATCH) {
-    const slice = playerQids.slice(i, i + BATCH);
+
+  const buildQuery = (slice) => {
     const values = slice.map((q) => "wd:" + q).join(" ");
-    const q = `
+    return `
       SELECT ?player ?playerLabel ?club ?clubLabel ?start ?end ?apps ?goals ?acqLabel ?clinks ?ispart WHERE {
         VALUES ?player { ${values} }
         ?player p:P54 ?st .
@@ -147,14 +147,9 @@ async function main() {
         OPTIONAL { ?st pq:P1642 ?acq . }
         SERVICE wikibase:label { bd:serviceParam wikibase:language "fr,en". }
       }`;
-    let rows;
-    try {
-      rows = await sparql(q);
-    } catch (e) {
-      console.error(`  ✗ lot ${Math.floor(i / BATCH) + 1} ignoré (${e.message})`);
-      await sleep(800);
-      continue;
-    }
+  };
+
+  const processRows = (rows) => {
     for (const r of rows) {
       const pid = qid(r.player.value);
       const name = r.playerLabel?.value;
@@ -175,8 +170,40 @@ async function main() {
       const lg = clubLeague[qid(r.club.value)];
       if (lg) players[pid].leaguesSet.add(lg);
     }
-    console.error(`  carrières ${i + slice.length}/${playerQids.length}`);
+  };
+
+  // tente un lot ; renvoie true si OK, false si échec (sans tout interrompre)
+  const runBatch = async (slice) => {
+    try {
+      processRows(await sparql(buildQuery(slice)));
+      return true;
+    } catch (e) {
+      console.error(`  ✗ lot ignoré (${e.message})`);
+      return false;
+    }
+  };
+
+  // 1er passage
+  const failed = [];
+  for (let i = 0; i < playerQids.length; i += BATCH) {
+    const slice = playerQids.slice(i, i + BATCH);
+    if (!(await runBatch(slice))) failed.push(...slice);
+    console.error(`  carrières ${Math.min(i + BATCH, playerQids.length)}/${playerQids.length}`);
     await sleep(800);
+  }
+
+  // 2e passage : rattrapage des joueurs des lots échoués, en petits paquets
+  if (failed.length) {
+    console.error(`↻ rattrapage de ${failed.length} joueurs (lots échoués)…`);
+    const SMALL = 6;
+    const stillFailed = [];
+    for (let i = 0; i < failed.length; i += SMALL) {
+      const slice = failed.slice(i, i + SMALL);
+      if (!(await runBatch(slice))) stillFailed.push(...slice);
+      await sleep(1200);
+    }
+    if (stillFailed.length) console.error(`⚠ ${stillFailed.length} joueurs définitivement manquants (Wikidata indisponible) — relance le script pour les récupérer.`);
+    else console.error("✓ rattrapage réussi, aucun joueur perdu.");
   }
 
   // --- Mise en forme finale (format de l'app) ---
