@@ -21,7 +21,7 @@
 const ENDPOINT = "https://query.wikidata.org/sparql";
 const API = "https://www.wikidata.org/w/api.php";
 const UA = "JaiJoueA/1.0 (https://jai-joue-a.vercel.app; projet perso)";
-const MIN_SITELINKS = 30;   // filtre de notoriété (monte-le pour réduire la base, ex. 40 = stars)
+const MIN_SITELINKS = 36;   // filtre de notoriété (monte-le pour réduire la base, ex. 45 = grosses stars)
 const BATCH = 20;           // joueurs par requête de carrière (plus petit = moins de timeouts)
 
 // 1) Clubs graines — ajoute/retire à volonté (accent L1 / PL / Liga)
@@ -59,7 +59,7 @@ const CLUB_MIN_LINKS = 6;        // en dessous : club jugé non pro (retiré en 
 const MIN_CAREER_APPS = 100;     // carrière finie : on écarte sous ce total de matchs
 const SAFE_POP = 50;             // au-dessus : joueur très connu, jamais écarté par la règle des matchs
 const RESERVE_RE = /(\sB|\sC|\sII|\sIII)$|castilla|réserve|reserves?\b/i; // équipes réserves
-const NATIONAL_RE = /national.*football team|équipe d['e].+ de football|\bsélection\b/i; // sélections nationales
+const NATIONAL_RE = /^équipe\s+d(?:e|u|es|')|national.*\bteam\b|\bsélection\b|\bselección\b|\bseleção\b|nationalmannschaft|\bnational under-?\d+/i; // sélections nationales / régionales / jeunes
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const qid = (uri) => uri.split("/").pop();
 
@@ -134,12 +134,13 @@ async function main() {
   const buildQuery = (slice) => {
     const values = slice.map((q) => "wd:" + q).join(" ");
     return `
-      SELECT ?player ?playerLabel ?club ?clubLabel ?start ?end ?apps ?goals ?acqLabel ?clinks ?ispart WHERE {
+      SELECT ?player ?playerLabel ?club ?clubLabel ?start ?end ?apps ?goals ?acqLabel ?clinks ?ispart ?isnat WHERE {
         VALUES ?player { ${values} }
         ?player p:P54 ?st .
         ?st ps:P54 ?club .
         ?club wikibase:sitelinks ?clinks .
         BIND(EXISTS { ?club wdt:P361 [] } AS ?ispart)
+        BIND(EXISTS { ?club wdt:P1532 [] } AS ?isnat)
         OPTIONAL { ?st pq:P580 ?start . }
         OPTIONAL { ?st pq:P582 ?end . }
         OPTIONAL { ?st pq:P1350 ?apps . }
@@ -149,10 +150,18 @@ async function main() {
       }`;
   };
 
+  // "abdou_haitem" -> "Abdou Haitem" : libellés Wikidata mal saisis (slug)
+  const prettyName = (s) => {
+    if (!s) return s;
+    let n = s.replace(/_/g, " ").replace(/\s+/g, " ").trim();
+    if (n === n.toLowerCase()) n = n.replace(/\b\p{L}/gu, (c) => c.toUpperCase());
+    return n;
+  };
+
   const processRows = (rows) => {
     for (const r of rows) {
       const pid = qid(r.player.value);
-      const name = r.playerLabel?.value;
+      const name = prettyName(r.playerLabel?.value);
       if (!name || /^Q\d+$/.test(name)) continue;
       players[pid] ||= { name, pop: popByQid[pid] || 0, leaguesSet: new Set(), career: [] };
       const sy = r.start ? +r.start.value.slice(0, 4) : null;
@@ -166,6 +175,7 @@ async function main() {
         loan: r.acqLabel ? /loan|pr[êe]t/i.test(r.acqLabel.value) : false,
         clinks: r.clinks ? +r.clinks.value : 0,
         ispart: r.ispart?.value === "true",
+        isnat: r.isnat?.value === "true",
       });
       const lg = clubLeague[qid(r.club.value)];
       if (lg) players[pid].leaguesSet.add(lg);
@@ -211,8 +221,10 @@ async function main() {
     .map((p) => {
       let career = p.career.slice();
 
-      // 0) retire réserves/sections (équipe rattachée à un club parent ET peu notable) et sélections nationales
+      // 0) retire sélections nationales/régionales (drapeau P1532 OU nom),
+      //    réserves/sections (équipe rattachée à un club parent ET peu notable)
       career = career.filter((c) =>
+        !c.isnat &&
         !NATIONAL_RE.test(c.club) &&
         !RESERVE_RE.test(c.club) &&
         !(c.ispart && (c.clinks || 0) < 30)
